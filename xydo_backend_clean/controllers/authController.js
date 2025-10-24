@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const crypto = require('crypto');
+const emailService = require('../services/emailService');
 
 // @desc    Register user
 // @route   POST /api/auth/register
@@ -24,6 +26,10 @@ exports.register = async (req, res) => {
       });
     }
 
+    // Generate email verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
     // Create user
     const user = await User.create({
       name,
@@ -34,15 +40,27 @@ exports.register = async (req, res) => {
       coachRole: coachRole || '',
       team: team || '',
       school: school || '',
-      teamCode: teamCode || ''
+      teamCode: teamCode || '',
+      isEmailVerified: false,
+      emailVerificationToken: verificationToken,
+      emailVerificationExpires: verificationExpires
     });
 
-    // Create token
+    // Send verification email
+    const emailResult = await emailService.sendVerificationEmail(email, name, verificationToken);
+    
+    if (!emailResult.success) {
+      console.error('Failed to send verification email:', emailResult.error);
+      // Continue anyway - user is created, they can resend verification email later
+    }
+
+    // Create token (but user needs to verify email to access protected routes)
     const token = user.getSignedJwtToken();
 
     res.status(201).json({
       success: true,
-      message: 'Registration successful',
+      message: 'Registration successful! Please check your email to verify your account.',
+      requiresVerification: true,
       token,
       user: {
         id: user._id,
@@ -52,7 +70,8 @@ exports.register = async (req, res) => {
         position: user.position,
         coachRole: user.coachRole,
         team: user.team,
-        school: user.school
+        school: user.school,
+        isEmailVerified: user.isEmailVerified
       }
     });
   } catch (error) {
@@ -60,6 +79,124 @@ exports.register = async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Server error during registration'
+    });
+  }
+};
+
+// @desc    Verify email
+// @route   GET /api/auth/verify-email/:token
+// @access  Public
+exports.verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    // Find user with this verification token and check if it's not expired
+    const user = await User.findOne({
+      emailVerificationToken: token,
+      emailVerificationExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid or expired verification token'
+      });
+    }
+
+    // Update user
+    user.isEmailVerified = true;
+    user.emailVerificationToken = '';
+    user.emailVerificationExpires = undefined;
+    await user.save();
+
+    // Send welcome email
+    await emailService.sendWelcomeEmail(user.email, user.name, user.role);
+
+    // Create token
+    const jwtToken = user.getSignedJwtToken();
+
+    res.status(200).json({
+      success: true,
+      message: 'Email verified successfully!',
+      token: jwtToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        position: user.position,
+        coachRole: user.coachRole,
+        team: user.team,
+        school: user.school,
+        isEmailVerified: user.isEmailVerified
+      }
+    });
+  } catch (error) {
+    console.error('Email verification error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error during email verification'
+    });
+  }
+};
+
+// @desc    Resend verification email
+// @route   POST /api/auth/resend-verification
+// @access  Public
+exports.resendVerification = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please provide email address'
+      });
+    }
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    if (user.isEmailVerified) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email is already verified'
+      });
+    }
+
+    // Generate new verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    user.emailVerificationToken = verificationToken;
+    user.emailVerificationExpires = verificationExpires;
+    await user.save();
+
+    // Send verification email
+    const emailResult = await emailService.sendVerificationEmail(email, user.name, verificationToken);
+    
+    if (!emailResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to send verification email'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Verification email sent! Please check your inbox.'
+    });
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
     });
   }
 };
@@ -99,6 +236,16 @@ exports.login = async (req, res) => {
       });
     }
 
+    // Check if email is verified
+    if (!user.isEmailVerified) {
+      return res.status(403).json({
+        success: false,
+        error: 'Please verify your email before logging in',
+        requiresVerification: true,
+        email: user.email
+      });
+    }
+
     // Create token
     const token = user.getSignedJwtToken();
 
@@ -114,7 +261,8 @@ exports.login = async (req, res) => {
         position: user.position,
         coachRole: user.coachRole,
         team: user.team,
-        school: user.school
+        school: user.school,
+        isEmailVerified: user.isEmailVerified
       }
     });
   } catch (error) {
