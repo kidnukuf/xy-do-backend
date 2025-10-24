@@ -1,15 +1,21 @@
-const sgMail = require('@sendgrid/mail');
+const nodemailer = require('nodemailer');
 
-// Initialize SendGrid with API key from environment variable
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+// Create transporter using Gmail
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
 
 // Send email verification email
 exports.sendVerificationEmail = async (email, name, verificationToken) => {
   const verificationUrl = `${process.env.FRONTEND_URL}/verify-email.html?token=${verificationToken}`;
   
-  const msg = {
+  const mailOptions = {
+    from: `"XY-DO Athletic Programs" <${process.env.EMAIL_USER}>`,
     to: email,
-    from: process.env.SENDGRID_FROM_EMAIL || 'noreply@xy-do.com', // Use verified sender
     subject: 'Verify Your XY-DO Account',
     text: `Hi ${name},\n\nWelcome to XY-DO Athletic Programs! Please verify your email address by clicking the link below:\n\n${verificationUrl}\n\nThis link will expire in 24 hours.\n\nIf you didn't create an account, please ignore this email.\n\nBest regards,\nXY-DO Team`,
     html: `
@@ -53,25 +59,22 @@ exports.sendVerificationEmail = async (email, name, verificationToken) => {
   };
 
   try {
-    await sgMail.send(msg);
+    await transporter.sendMail(mailOptions);
     console.log(`Verification email sent to ${email}`);
     return { success: true };
   } catch (error) {
     console.error('Error sending verification email:', error);
-    if (error.response) {
-      console.error(error.response.body);
-    }
     return { success: false, error: error.message };
   }
 };
 
 // Send welcome email after verification
 exports.sendWelcomeEmail = async (email, name, role) => {
-  const dashboardUrl = `${process.env.FRONTEND_URL}/${role}-dashboard.html`;
+  const dashboardUrl = `${process.env.FRONTEND_URL}/dashboard.html`;
   
-  const msg = {
+  const mailOptions = {
+    from: `"XY-DO Athletic Programs" <${process.env.EMAIL_USER}>`,
     to: email,
-    from: process.env.SENDGRID_FROM_EMAIL || 'noreply@xy-do.com',
     subject: 'Welcome to XY-DO Athletic Programs!',
     text: `Hi ${name},\n\nYour email has been verified! You now have full access to XY-DO Athletic Programs.\n\nGet started by visiting your dashboard: ${dashboardUrl}\n\nBest regards,\nXY-DO Team`,
     html: `
@@ -119,7 +122,7 @@ exports.sendWelcomeEmail = async (email, name, role) => {
   };
 
   try {
-    await sgMail.send(msg);
+    await transporter.sendMail(mailOptions);
     console.log(`Welcome email sent to ${email}`);
     return { success: true };
   } catch (error) {
