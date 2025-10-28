@@ -26,9 +26,10 @@ exports.register = async (req, res) => {
       });
     }
 
+    // TEMPORARY: Email verification disabled until transactional email service is set up
     // Generate email verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    // const verificationToken = crypto.randomBytes(32).toString('hex');
+    // const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
     // Create user
     const user = await User.create({
@@ -41,26 +42,24 @@ exports.register = async (req, res) => {
       team: team || '',
       school: school || '',
       teamCode: teamCode || '',
-      isEmailVerified: false,
-      emailVerificationToken: verificationToken,
-      emailVerificationExpires: verificationExpires
+      isEmailVerified: true, // TEMPORARY: Auto-verify until email service is configured
+      // emailVerificationToken: verificationToken,
+      // emailVerificationExpires: verificationExpires
     });
 
-    // Send verification email
-    const emailResult = await emailService.sendVerificationEmail(email, name, verificationToken);
-    
-    if (!emailResult.success) {
-      console.error('Failed to send verification email:', emailResult.error);
-      // Continue anyway - user is created, they can resend verification email later
-    }
+    // TEMPORARY: Skip sending verification email
+    // const emailResult = await emailService.sendVerificationEmail(email, name, verificationToken);
+    // if (!emailResult.success) {
+    //   console.error('Failed to send verification email:', emailResult.error);
+    // }
 
-    // Create token (but user needs to verify email to access protected routes)
+    // Create token
     const token = user.getSignedJwtToken();
 
     res.status(201).json({
       success: true,
-      message: 'Registration successful! Please check your email to verify your account.',
-      requiresVerification: true,
+      message: 'Registration successful! You can now login.',
+      requiresVerification: false,
       token,
       user: {
         id: user._id,
@@ -236,15 +235,15 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Check if email is verified
-    if (!user.isEmailVerified) {
-      return res.status(403).json({
-        success: false,
-        error: 'Please verify your email before logging in',
-        requiresVerification: true,
-        email: user.email
-      });
-    }
+    // TEMPORARY: Email verification check disabled
+    // if (!user.isEmailVerified) {
+    //   return res.status(403).json({
+    //     success: false,
+    //     error: 'Please verify your email before logging in',
+    //     requiresVerification: true,
+    //     email: user.email
+    //   });
+    // }
 
     // Create token
     const token = user.getSignedJwtToken();
