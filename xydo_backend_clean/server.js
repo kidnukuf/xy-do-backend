@@ -4,6 +4,8 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const passport = require('./config/passport');
 const authController = require('./controllers/authController');
 const { protect, authorize } = require('./middleware/auth');
@@ -13,8 +15,33 @@ dotenv.config();
 
 const app = express();
 
-// Body parser
-app.use(express.json());
+// Security headers
+app.use(helmet());
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limiting for auth routes (stricter)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 login/register attempts per windowMs
+  message: 'Too many authentication attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply rate limiting to all routes
+app.use('/api/', limiter);
+
+// Body parser with size limits
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Enable CORS with credentials
 app.use(cors({
@@ -65,11 +92,13 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Auth routes
-app.post('/api/auth/register', authController.register);
-app.post('/api/auth/login', authController.login);
+// Auth routes (with stricter rate limiting)
+app.post('/api/auth/register', authLimiter, authController.register);
+app.post('/api/auth/login', authLimiter, authController.login);
 app.get('/api/auth/verify-email/:token', authController.verifyEmail);
-app.post('/api/auth/resend-verification', authController.resendVerification);
+app.post('/api/auth/resend-verification', authLimiter, authController.resendVerification);
+app.post('/api/auth/forgot-password', authLimiter, authController.forgotPassword);
+app.post('/api/auth/reset-password/:token', authLimiter, authController.resetPassword);
 app.get('/api/auth/me', protect, authController.getMe);
 app.get('/api/auth/logout', protect, authController.logout);
 
