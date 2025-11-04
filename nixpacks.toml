@@ -1,8 +1,0 @@
-[phases.setup]
-nixPkgs = ["nodejs_18"]
-
-[phases.install]
-cmds = ["cd xydo_backend_clean && npm ci"]
-
-[start]
-cmd = "cd xydo_backend_clean && node server.js"
